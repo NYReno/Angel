@@ -1,0 +1,24 @@
+### Add User
+POST https://ic-cf-2020-team-208-angel-srv.cfapps.eu10.hana.ondemand.com/guardianangel-service/addRandomBooks
+Content-Type: application/json
+
+{}
+
+### Get GeoFences
+GET  https://ic-cf-2020-team-208-angel-srv.cfapps.eu10.hana.ondemand.com/guardianangel-service/GeoFences
+
+### Get Fence Points
+GET  https://ic-cf-2020-team-208-angel-srv.cfapps.eu10.hana.ondemand.com/guardianangel-service/GeoFencePoints
+
+### Get GeoFences & Points
+GET  https://ic-cf-2020-team-208-angel-srv.cfapps.eu10.hana.ondemand.com/guardianangel-service/GeoFences?$expand=Points
+
+### Get Locations
+GET  https://ic-cf-2020-team-208-angel-srv.cfapps.eu10.hana.ondemand.com/guardianangel-service/UserLocations
+
+### Call popUser
+POST https://ic-cf-2020-team-208-angel-srv.cfapps.eu10.hana.ondemand.com/guardianangel-service/popUser
+Content-Type: application/json
+
+{}
+

@@ -1,0 +1,25 @@
+PROCEDURE "POPUSER"(out result "GUARDIANANGEL_USERLOCATIONS")
+   LANGUAGE SQLSCRIPT
+   SQL SECURITY INVOKER
+   --DEFAULT SCHEMA <default_schema_name>
+ AS
+BEGIN
+		DECLARE vID NVARCHAR(32);
+        select SYSUUID into vId from dummy;
+		--select LPAD(ROUND((RAND() * 10000000000000000),0),17,'00000000000000000') into vId from dummy;
+        --vId = 'dshrthtrdsrjrtj';
+		INSERT INTO "GUARDIANANGEL_USERLOCATIONS" VALUES(
+	        vId /*vId ID*/,
+	        '20200812'/*LOC_DATE <NVARCHAR(8)>*/,
+	        '10:47:56'/*LOC_TIME <NVARCHAR(8)>*/,
+	        32.56345 /*LATITUDE <DOUBLE>*/,
+	        -117.35234/*LONGITUDE <DOUBLE>*/,
+	        'Y'/*WITHIN <NVARCHAR(1)>*/,
+	        2.35/*DISTANCE <DOUBLE>*/,
+	        3.0/*TOLERANCE <DOUBLE>*/,
+	        0.65/*DIFFERENCE <DOUBLE>*/
+        );
+   
+		 result = select * from "GUARDIANANGEL_USERLOCATIONS" where ID = :vId;
+	
+END
