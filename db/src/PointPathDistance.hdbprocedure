@@ -1,0 +1,117 @@
+PROCEDURE "PointPathDistance" (IN PID NVarChar(36), 
+                               IN CURRLAT Decimal (12, 8), 
+                               IN CURRLONG Decimal (12, 8),
+                               IN OPEN_CLOSE NVarChar(1),
+                               IN LDATE NVarChar (8),
+                               IN LTIME NVarChar(8),
+                               out result "GUARDIANANGEL_USERLOCATIONS") 
+	LANGUAGE SQLScript
+	SQL SECURITY INVOKER 
+	--DEFAULT SCHEMA <default_schema_name>
+	AS
+BEGIN
+	DECLARE i INTEGER;
+	DECLARE maxPointNum Integer;
+    DECLARE GAUUID NVarChar(36);
+	DECLARE decEndPointLat1 Decimal(12, 8);
+	DECLARE decEndPointLong1 Decimal(12, 8);	
+	DECLARE decEndPointLat2 Decimal(12, 8);
+	DECLARE decEndPointLong2 Decimal(12, 8);	
+	DECLARE decMidPointLat Decimal(12, 8);
+	DECLARE decMidPointLong Decimal(12, 8);
+	DECLARE dDistEP1 Double;
+	DECLARE dDistEP2 Double;
+	DECLARE dDistMid Double;
+	DECLARE dDistMin Double;
+	DECLARE dFirstLat Double;
+	DECLARE dFirstLong Double;
+	DECLARE stEndCoord1 ST_GEOMETRY;
+	DECLARE stEndCoord2 ST_GEOMETRY;
+	DECLARE stMidCoord2 ST_GEOMETRY;
+	DECLARE stCurrCoord ST_GEOMETRY;
+
+	DECLARE CURSOR curPaths FOR
+		SELECT A.POINT_NUM, A.LATITUDE as FROMLAT, A.LONGITUDE as FROMLONG, B.LATITUDE as TOLAT, B.LONGITUDE as TOLONG
+		FROM
+    		(SELECT POINT_NUM, LATITUDE, LONGITUDE
+	         FROM "GUARDIANANGEL_GEOFENCEPOINTS"
+	         WHERE PARENT_ID = PID AND POINT_TYPE = 'F') A
+	         INNER JOIN
+	        (SELECT POINT_NUM-1 AS "POINT_NUM", LATITUDE, LONGITUDE
+	         FROM "GUARDIANANGEL_GEOFENCEPOINTS"
+	         WHERE PARENT_ID = PID AND POINT_TYPE = 'F'
+	         UNION
+	         SELECT maxPointNum As PointNum, LATITUDE, LONGITUDE
+	         FROM "GUARDIANANGEL_GEOFENCEPOINTS"
+	         WHERE PARENT_ID = PID AND POINT_TYPE = 'F' AND POINT_NUM = 0) B
+	         ON (A.POINT_NUM = B.POINT_NUM)
+	         ORDER BY POINT_NUM;
+
+	-- Initialize Minimum Distance with really large number
+    SELECT 1000000 INTO dDistMin FROM DUMMY;
+    SELECT Max(POINT_NUM) INTO maxPointNum FROM "GUARDIANANGEL_GEOFENCEPOINTS" WHERE PARENT_ID = PID AND POINT_TYPE = 'F';
+    SELECT NEW ST_Point(CURRLONG, CURRLAT).ST_SRID(4326) INTO stCurrCoord  FROM DUMMY;  
+
+     -- Loop through line segments
+	FOR r1 AS curPaths DO
+		
+		IF r1.POINT_NUM = maxPointNum AND OPEN_CLOSE = 'O' THEN
+			break;
+		END IF;
+		
+		-- Store End Points and Mid Point
+ 	   	SELECT r1.FROMLAT  INTO decEndPointLat1  FROM DUMMY;
+ 	   	SELECT r1.FROMLONG INTO decEndPointLong1 FROM DUMMY;
+ 	   	SELECT NEW ST_Point(decEndPointLong1, decEndPointLat1).ST_SRID(4326) INTO stEndCoord1 FROM DUMMY;
+ 	   	SELECT r1.TOLAT  INTO decEndPointLat2  FROM DUMMY;
+ 	   	SELECT r1.TOLONG INTO decEndPointLong2 FROM DUMMY;
+ 	   	SELECT NEW ST_Point(decEndPointLong1, decEndPointLat1).ST_SRID(4326) INTO stEndCoord2 FROM DUMMY;
+ 	   	
+		-- Find Mid Point
+		SELECT (decEndPointLat1 + decEndPointLat2)/2 INTO decMidPointLat FROM DUMMY;
+		SELECT (decEndPointLong1 + decEndPointLong2)/2 INTO decMidPointLong FROM DUMMY;
+		SELECT NEW ST_Point(decMidPointLong, decMidPointLat).ST_SRID(4326) INTO stMidCoord2 FROM DUMMY;
+
+		FOR i in 1..10 Do
+		
+	 		SELECT stEndCoord1.ST_Distance(stCurrCoord) INTO dDistEP1  FROM DUMMY;
+	 		SELECT stEndCoord2.ST_Distance(stCurrCoord) INTO dDistEP2 FROM DUMMY;
+		 	SELECT stMidCoord2.ST_Distance(stCurrCoord) INTO dDistMid FROM DUMMY;
+	 	
+	 		If dDistEP1 < dDistMid OR (dDistMid<dDistEP1 AND dDistMid<dDistEP2 AND dDistEP1 <= dDistEP2) Then
+		 	   	SELECT decMidPointLat   INTO decEndPointLat2  FROM DUMMY;
+		 	   	SELECT decMidPointLong  INTO decEndPointLong2 FROM DUMMY;
+	 	   		SELECT (decMidPointLat  + decEndPointLat1)/2  INTO decMidPointLat  FROM DUMMY;
+	 		   	SELECT (decMidPointLong + decEndPointLong1)/2 INTO decMidPointLong FROM DUMMY;
+		 	ElseIf dDistEP2 < dDistMid  OR (dDistMid<dDistEP1 AND dDistMid<dDistEP2 AND dDistEP2 < dDistEP1) Then
+		 	   	SELECT decMidPointLat   INTO decEndPointLat1  FROM DUMMY;
+		 	   	SELECT decMidPointLong  INTO decEndPointLong1 FROM DUMMY;
+	 	   		SELECT (decMidPointLat  + decEndPointLat2)/2  INTO decMidPointLat  FROM DUMMY;
+	 		   	SELECT (decMidPointLong + decEndPointLong2)/2 INTO decMidPointLong FROM DUMMY;
+		 	End If;
+	 	END FOR;
+	 	
+	 	-- Assign New Minimum Distance if Necessary
+		If dDistEP1 <= dDistEP2 AND dDistEP1 <= dDistMid AND dDistEP1 < dDistMin Then
+			SELECT dDistEP1  INTO dDistMin FROM DUMMY;   
+		ElseIf dDistEP2 <= dDistEP1 AND dDistEP2 <= dDistMid AND dDistEP2 < dDistMin Then
+			SELECT dDistEP2  INTO dDistMin  FROM DUMMY;
+		ElseIF dDistMid < dDistMin Then
+			SELECT dDistMid  INTO dDistMin  FROM DUMMY;
+		End If;
+	 END FOR;
+   
+
+	 SELECT SYSUUID INTO GAUUID FROM DUMMY;
+	                                                           --  ID    , Date , Time 
+	 INSERT INTO "GUARDIANANGEL_USERLOCATIONS" values(GAUUID, LDATE, LTIME, CURRLAT,CURRLONG, 'Y', dDistMin, 0, 0);
+     
+	 -- Output
+	 result = SELECT * FROM "GUARDIANANGEL_USERLOCATIONS" WHERE "ID" = :GAUUID;
+
+
+
+	 -- Output
+	 --result = select * from "GUARDIANANGEL_USERLOCATIONS" where ID = :PID;
+
+END;
