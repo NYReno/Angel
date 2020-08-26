@@ -1,4 +1,6 @@
 PROCEDURE "PointPathDistance" (IN PID NVarChar(36), 
+                               IN CENTERLAT Decimal (12, 8),
+                               IN CENTERLONG Decimal (12, 8),
                                IN CURRLAT Decimal (12, 8), 
                                IN CURRLONG Decimal (12, 8),
                                IN OPEN_CLOSE NVarChar(1),
@@ -6,7 +8,7 @@ PROCEDURE "PointPathDistance" (IN PID NVarChar(36),
                                IN LTIME NVarChar(8),
                                out result "GUARDIANANGEL_USERLOCATIONS") 
 	LANGUAGE SQLScript
-	SQL SECURITY INVOKER 
+	SQL SECURITY DEFINER 
 	--DEFAULT SCHEMA <default_schema_name>
 	AS
 BEGIN
@@ -29,6 +31,22 @@ BEGIN
 	DECLARE stEndCoord2 ST_GEOMETRY;
 	DECLARE stMidCoord2 ST_GEOMETRY;
 	DECLARE stCurrCoord ST_GEOMETRY;
+    -----------------------------------
+    -- For Intersection
+    -----------------------------------
+    DECLARE MA DOUBLE;
+	DECLARE MB DOUBLE;
+	DECLARE BA DOUBLE;
+	DECLARE BB DOUBLE;
+	DECLARE XA DOUBLE;
+	DECLARE MAX_MIN_X DOUBLE;
+	DECLARE MIN_MAX_X DOUBLE;
+	DECLARE DOESINTERSECT INTEGER;
+	DECLARE intersectionCnt INTEGER;
+	DECLARE bWithin NVarChar(1);
+	-----------------------------------
+    -- End For Intersection
+    -----------------------------------
 
 	DECLARE CURSOR curPaths FOR
 		SELECT A.POINT_NUM, A.LATITUDE as FROMLAT, A.LONGITUDE as FROMLONG, B.LATITUDE as TOLAT, B.LONGITUDE as TOLONG
@@ -48,6 +66,7 @@ BEGIN
 	         ORDER BY POINT_NUM;
 
 	-- Initialize Minimum Distance with really large number
+    Select 0 INTO intersectionCnt FROM DUMMY; -- xx
     SELECT 1000000 INTO dDistMin FROM DUMMY;
     SELECT Max(POINT_NUM) INTO maxPointNum FROM "GUARDIANANGEL_GEOFENCEPOINTS" WHERE PARENT_ID = PID AND POINT_TYPE = 'F';
     SELECT NEW ST_Point(CURRLONG, CURRLAT).ST_SRID(4326) INTO stCurrCoord  FROM DUMMY;  
@@ -58,6 +77,99 @@ BEGIN
 		IF r1.POINT_NUM = maxPointNum AND OPEN_CLOSE = 'O' THEN
 			break;
 		END IF;
+
+		---------------------------------------------------------------------------
+		-- For Intersection
+		---------------------------------------------------------------------------
+		SELECT 1 INTO DOESINTERSECT FROM DUMMY;
+		
+		IF OPEN_CLOSE = 'C' THEN
+			IF r1.TOLAT-r1.FROMLAT != 0 AND CURRLAT-CENTERLAT != 0 THEN
+				SELECT (r1.TOLONG - r1.FROMLONG)/(r1.TOLAT - r1.FROMLAT) INTO MA FROM DUMMY; 
+	 			SELECT (CURRLONG - CENTERLONG)/(CURRLAT - CENTERLAT) INTO MB FROM DUMMY;
+	 			IF MA = MB THEN
+	 				SELECT 0 INTO DOESINTERSECT FROM DUMMY;
+	 			END IF;
+			END IF;
+	
+			SELECT r1.FROMLONG-MA*r1.FROMLAT INTO BA FROM DUMMY;
+			SELECT CENTERLONG-MB*CENTERLAT INTO BB FROM DUMMY;
+			SELECT (BB - BA) / (MA - MB) INTO XA FROM DUMMY;
+	
+			-- Max of Mins
+			IF r1.FROMLAT < r1.TOLAT THEN         -- MIN(r1.FROMLAT, r1.TOLAT) = r1.FROMLAT
+				IF CENTERLAT < CURRLAT THEN        -- MIN(CENTERLAT, CURRLAT) = CENTERLAT
+					IF r1.FROMLAT > CENTERLAT THEN       -- MAX(r1.FROMLAT, CENTERLAT) = r1.FROMLAT
+						SELECT r1.FROMLAT INTO MAX_MIN_X FROM DUMMY;
+					ELSE                          -- MAX(r1.FROMLAT, CENTERLAT) = CENTERLAT
+						SELECT CENTERLAT INTO MAX_MIN_X FROM DUMMY;
+					END IF;
+				ELSEIF CURRLAT < CENTERLAT THEN   -- MIN(CENTERLAT, CURRLAT) = CURRLAT
+					IF r1.FROMLAT > CURRLAT THEN       -- MAX(r1.FROMLAT, CURRLAT) = r1.FROMLAT
+						SELECT r1.FROMLAT INTO MAX_MIN_X FROM DUMMY;
+					ELSE                          -- MAX(r1.FROMLAT, CURRLAT) = CURRLAT
+						SELECT CURRLAT INTO MAX_MIN_X FROM DUMMY;
+					END IF;
+				END IF;
+			ELSEIF r1.TOLAT < r1.FROMLAT THEN     -- MIN(r1.FROMLAT, r1.TOLAT) = r1.TOLAT
+				IF CENTERLAT < CURRLAT THEN        -- MIN(CENTERLAT, CURRLAT) = CENTERLAT
+					IF r1.TOLAT > CENTERLAT THEN       -- MAX(r1.TOLAT, CENTERLAT) = r1.TOLAT
+						SELECT r1.TOLAT INTO MAX_MIN_X FROM DUMMY;
+					ELSE                          -- MAX(r1.TOLAT, CENTERLAT) = CENTERLAT
+						SELECT CENTERLAT INTO MAX_MIN_X FROM DUMMY;
+					END IF;
+				ELSEIF CURRLAT < CENTERLAT THEN   -- MIN(CENTERLAT, CURRLAT) = CURRLAT
+					IF r1.TOLAT > CURRLAT THEN       -- MAX(r1.TOLAT, CURRLAT) = r1.TOLAT
+						SELECT r1.TOLAT INTO MAX_MIN_X FROM DUMMY;
+					ELSE                          -- MAX(r1.TOLAT, CURRLAT) = CURRLAT
+						SELECT CURRLAT INTO MAX_MIN_X FROM DUMMY;
+					END IF;
+				END IF;
+			END IF;
+	
+			-- Min of Max
+			IF r1.FROMLAT > r1.TOLAT THEN         -- MAX(r1.FROMLAT, r1.TOLAT) = r1.FROMLAT
+				IF CENTERLAT > CURRLAT THEN        -- MAX(CENTERLAT, CURRLAT) = CENTERLAT
+					IF r1.FROMLAT < CENTERLAT THEN       -- MIN(r1.FROMLAT, CENTERLAT) = r1.FROMLAT
+						SELECT r1.FROMLAT INTO MIN_MAX_X FROM DUMMY;
+					ELSE                          -- MIN(r1.FROMLAT, CENTERLAT) = CENTERLAT
+						SELECT CENTERLAT INTO MIN_MAX_X FROM DUMMY;
+					END IF;
+				ELSEIF CURRLAT > CENTERLAT THEN   -- MAX(CENTERLAT, CURRLAT) = CURRLAT
+					IF r1.FROMLAT < CURRLAT THEN       -- MIN(r1.FROMLAT, CURRLAT) = r1.FROMLAT
+						SELECT r1.FROMLAT INTO MIN_MAX_X FROM DUMMY;
+					ELSE                          -- MIN(r1.FROMLAT, CURRLAT) = CURRLAT
+						SELECT CURRLAT INTO MIN_MAX_X FROM DUMMY;
+					END IF;
+				END IF;
+			ELSEIF r1.TOLAT > r1.FROMLAT THEN     -- MAX(r1.FROMLAT, r1.TOLAT) = r1.TOLAT
+				IF CENTERLAT > CURRLAT THEN        -- MAX(CENTERLAT, CURRLAT) = CENTERLAT
+					IF r1.TOLAT < CENTERLAT THEN       -- MIN(r1.TOLAT, CENTERLAT) = r1.TOLAT
+						SELECT r1.TOLAT INTO MIN_MAX_X FROM DUMMY;
+					ELSE                          -- MIN(r1.TOLAT, CENTERLAT) = CENTERLAT
+						SELECT CENTERLAT INTO MIN_MAX_X FROM DUMMY;
+					END IF;
+				ELSEIF CURRLAT > CENTERLAT THEN   -- MAX(CENTERLAT, CURRLAT) = CURRLAT
+					IF r1.TOLAT < CURRLAT THEN       -- MIN(r1.TOLAT, CURRLAT) = r1.TOLAT
+						SELECT r1.TOLAT INTO MIN_MAX_X FROM DUMMY;
+					ELSE                          -- MIN(r1.TOLAT, CURRLAT) = CURRLAT
+						SELECT CURRLAT INTO MIN_MAX_X FROM DUMMY;
+					END IF;
+				END IF;
+			END IF;
+			
+			IF XA < MAX_MIN_X OR
+       		   XA > MIN_MAX_X THEN	
+       			SELECT 0 INTO DOESINTERSECT FROM DUMMY;
+    		END IF;
+			
+			
+			SELECT intersectionCnt + DOESINTERSECT INTO intersectionCnt FROM DUMMY;
+		END IF;
+		---------------------------------------------------------------------------
+		-- End For Intersection
+		---------------------------------------------------------------------------
+
 		
 		-- Store End Points and Mid Point
  	   	SELECT r1.FROMLAT  INTO decEndPointLat1  FROM DUMMY;
@@ -101,10 +213,23 @@ BEGIN
 		End If;
 	 END FOR;
    
+	 ---------------------------------------------------------------------------
+	 -- For Intersection
+	 ---------------------------------------------------------------------------
+	 SELECT 'X' INTO bWithin FROM DUMMY;
+	 IF OPEN_CLOSE = 'O' THEN
+	 	SELECT 'X' INTO bWithin FROM DUMMY;
+	 ELSEIF MOD(intersectionCnt, 2) = 1 THEN
+	 	SELECT 'N' INTO bWithin FROM DUMMY;
+	 ELSE
+	 	SELECT 'Y' INTO bWithin FROM DUMMY;
+	 END IF;
+	 ---------------------------------------------------------------------------
+	 -- End For Intersection
+	 ---------------------------------------------------------------------------
 
 	 SELECT SYSUUID INTO GAUUID FROM DUMMY;
-	                                                           --  ID    , Date , Time 
-	 INSERT INTO "GUARDIANANGEL_USERLOCATIONS" values(GAUUID, LDATE, LTIME, CURRLAT,CURRLONG, 'Y', dDistMin, 0, 0);
+	 INSERT INTO "GUARDIANANGEL_USERLOCATIONS" values(GAUUID, LDATE, LTIME, CURRLAT,CURRLONG, bWithin, dDistMin, 0, 0);
      
 	 -- Output
 	 result = SELECT * FROM "GUARDIANANGEL_USERLOCATIONS" WHERE "ID" = :GAUUID;
